@@ -10,9 +10,8 @@ import ReplayKit
 
 struct ContentView: View {
     @StateObject private var screenRecorder = ScreenRecorder()
-    @State private var isRecording = false
-    @State private var recordingTime: TimeInterval = 0
-    @State private var timer: Timer?
+    @State private var showError = false
+    @State private var errorMessage = ""
     
     var body: some View {
         VStack(spacing: 20) {
@@ -20,58 +19,57 @@ struct ContentView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
             
-            Text(isRecording ? "Recording..." : "Ready to Record")
-                .foregroundColor(isRecording ? .red : .green)
+            StatusView(isRecording: screenRecorder.isRecording)
             
-            if isRecording {
-                Text(timeString(from: recordingTime))
-                    .font(.title)
-                    .monospacedDigit()
+            if screenRecorder.isRecording {
+                RecordingTimerView(time: screenRecorder.recordingTime)
             }
             
-            Button(action: {
-                if isRecording {
-                    stopRecording()
-                } else {
-                    startRecording()
+            RecordButton(isRecording: screenRecorder.isRecording) {
+                Task {
+                    await handleRecordingAction()
                 }
-            }) {
-                Text(isRecording ? "Stop Recording" : "Start Recording")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding()
-                    .background(isRecording ? Color.red : Color.blue)
-                    .cornerRadius(10)
             }
         }
         .padding()
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
     }
     
-    private func startRecording() {
-        screenRecorder.startRecording { success in
-            if success {
-                isRecording = true
-                startTimer()
+    private func handleRecordingAction() async {
+        do {
+            if screenRecorder.isRecording {
+                try await screenRecorder.stopRecording()
+            } else {
+                try await screenRecorder.startRecording()
             }
+        } catch {
+            showError = true
+            errorMessage = error.localizedDescription
         }
     }
+}
+
+struct StatusView: View {
+    let isRecording: Bool
     
-    private func stopRecording() {
-        screenRecorder.stopRecording()
-        isRecording = false
-        stopTimer()
+    var body: some View {
+        Text(isRecording ? "Recording..." : "Ready to Record")
+            .foregroundColor(isRecording ? .red : .green)
+            .font(.headline)
     }
+}
+
+struct RecordingTimerView: View {
+    let time: TimeInterval
     
-    private func startTimer() {
-        recordingTime = 0
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-            recordingTime += 1
-        }
-    }
-    
-    private func stopTimer() {
-        timer?.invalidate()
-        timer = nil
+    var body: some View {
+        Text(timeString(from: time))
+            .font(.title)
+            .monospacedDigit()
     }
     
     private func timeString(from timeInterval: TimeInterval) -> String {
@@ -82,8 +80,22 @@ struct ContentView: View {
     }
 }
 
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView()
+struct RecordButton: View {
+    let isRecording: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(isRecording ? "Stop Recording" : "Start Recording")
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding()
+                .background(isRecording ? Color.red : Color.blue)
+                .cornerRadius(10)
+        }
     }
+}
+
+#Preview {
+    ContentView()
 }
