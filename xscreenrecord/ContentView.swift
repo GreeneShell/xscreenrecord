@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
+import ReplayKit
 
 struct ContentView: View {
     @StateObject private var screenRecorder = ScreenRecorder()
-    @StateObject private var webSocketManager = WebSocketManager()
-    @State private var serverAddress = ""
+    @State private var isRecording = false
+    @State private var recordingTime: TimeInterval = 0
+    @State private var timer: Timer?
     
     var body: some View {
         VStack(spacing: 20) {
@@ -18,53 +20,65 @@ struct ContentView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
             
-            HStack {
-                TextField("WebSocket 服务器地址", text: $serverAddress)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .autocapitalization(.none)
-                
-                Button(action: {
-                    if webSocketManager.isConnected {
-                        webSocketManager.disconnect()
-                    } else {
-                        webSocketManager.connect(to: serverAddress)
-                    }
-                }) {
-                    Text(webSocketManager.isConnected ? "断开连接" : "连接")
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(webSocketManager.isConnected ? Color.red : Color.blue)
-                        .cornerRadius(8)
-                }
-            }
-            .padding(.horizontal)
+            Text(isRecording ? "Recording..." : "Ready to Record")
+                .foregroundColor(isRecording ? .red : .green)
             
-            Text(webSocketManager.isConnected ? "已连接到服务器" : "未连接到服务器")
-                .foregroundColor(webSocketManager.isConnected ? .green : .red)
-            
-            if screenRecorder.isRecording {
-                Text(String(format: "录制时长: %.0f 秒", screenRecorder.recordingTime))
-                    .font(.headline)
+            if isRecording {
+                Text(timeString(from: recordingTime))
+                    .font(.title)
+                    .monospacedDigit()
             }
             
             Button(action: {
-                if screenRecorder.isRecording {
-                    screenRecorder.stopRecording()
+                if isRecording {
+                    stopRecording()
                 } else {
-                    screenRecorder.startRecording()
+                    startRecording()
                 }
             }) {
-                Text(screenRecorder.isRecording ? "停止录制" : "开始录制")
+                Text(isRecording ? "Stop Recording" : "Start Recording")
                     .font(.headline)
                     .foregroundColor(.white)
-                    .frame(width: 200, height: 50)
-                    .background(screenRecorder.isRecording ? Color.red : Color.blue)
+                    .padding()
+                    .background(isRecording ? Color.red : Color.blue)
                     .cornerRadius(10)
             }
-            .disabled(!webSocketManager.isConnected)
         }
         .padding()
+    }
+    
+    private func startRecording() {
+        screenRecorder.startRecording { success in
+            if success {
+                isRecording = true
+                startTimer()
+            }
+        }
+    }
+    
+    private func stopRecording() {
+        screenRecorder.stopRecording()
+        isRecording = false
+        stopTimer()
+    }
+    
+    private func startTimer() {
+        recordingTime = 0
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            recordingTime += 1
+        }
+    }
+    
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+    
+    private func timeString(from timeInterval: TimeInterval) -> String {
+        let hours = Int(timeInterval) / 3600
+        let minutes = Int(timeInterval) / 60 % 60
+        let seconds = Int(timeInterval) % 60
+        return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
     }
 }
 

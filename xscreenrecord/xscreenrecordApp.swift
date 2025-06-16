@@ -7,9 +7,10 @@
 
 import SwiftUI
 import ReplayKit
+import UIKit
 
 @main
-struct xscreenrecordApp: App {
+struct XScreenRecordApp: App {
     init() {
         requestPermissions()
     }

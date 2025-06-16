@@ -9,42 +9,49 @@ class ScreenRecorder: NSObject, ObservableObject {
     private let recorder = RPScreenRecorder.shared()
     private var timer: Timer?
     private var startTime: Date?
+    private var webSocketManager: WebSocketManager?
     
     override init() {
         super.init()
         recorder.isMicrophoneEnabled = false
+        setupWebSocket()
     }
     
-    func startRecording() {
-        guard !isRecording else { return }
+    private func setupWebSocket() {
+        webSocketManager = WebSocketManager()
+    }
+    
+    func startRecording(completion: @escaping (Bool) -> Void) {
+        guard !recorder.isRecording else {
+            completion(false)
+            return
+        }
         
-        recorder.startRecording { [weak self] error in
-            if let error = error {
-                print("录制开始失败: \(error.localizedDescription)")
+        recorder.startCapture { [weak self] (sampleBuffer, bufferType, error) in
+            guard let self = self, error == nil else {
+                completion(false)
                 return
             }
             
-            DispatchQueue.main.async {
-                self?.isRecording = true
-                self?.startTime = Date()
-                self?.startTimer()
+            if bufferType == .video {
+                self.webSocketManager?.sendVideoData(sampleBuffer)
+            }
+        } completionHandler: { error in
+            if let error = error {
+                print("Failed to start recording: \(error.localizedDescription)")
+                completion(false)
+            } else {
+                completion(true)
             }
         }
     }
     
     func stopRecording() {
-        guard isRecording else { return }
+        guard recorder.isRecording else { return }
         
-        recorder.stopRecording { [weak self] error in
+        recorder.stopCapture { error in
             if let error = error {
-                print("录制停止失败: \(error.localizedDescription)")
-                return
-            }
-            
-            DispatchQueue.main.async {
-                self?.isRecording = false
-                self?.stopTimer()
-                self?.recordingTime = 0
+                print("Failed to stop recording: \(error.localizedDescription)")
             }
         }
     }
