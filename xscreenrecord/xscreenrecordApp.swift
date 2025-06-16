@@ -27,7 +27,6 @@ struct XScreenRecordApp: App {
 class PermissionManager: ObservableObject {
     @Published private(set) var arePermissionsGranted = false
     @Published private(set) var screenRecordingPermission = false
-    @Published private(set) var microphonePermission = false
     
     init() {
         checkPermissions()
@@ -35,30 +34,12 @@ class PermissionManager: ObservableObject {
     
     func checkPermissions() {
         checkScreenRecordingPermission()
-        checkMicrophonePermission()
-        
-        arePermissionsGranted = screenRecordingPermission && microphonePermission
+        arePermissionsGranted = screenRecordingPermission
     }
     
     private func checkScreenRecordingPermission() {
         RPScreenRecorder.shared().isMicrophoneEnabled = false
         screenRecordingPermission = true
-    }
-    
-    private func checkMicrophonePermission() {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            microphonePermission = true
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                DispatchQueue.main.async {
-                    self.microphonePermission = granted
-                    self.arePermissionsGranted = self.screenRecordingPermission && self.microphonePermission
-                }
-            }
-        default:
-            microphonePermission = false
-        }
     }
 }
 
@@ -79,12 +60,6 @@ struct PermissionRequestView: View {
                     title: "Screen Recording",
                     isGranted: permissionManager.screenRecordingPermission,
                     systemImage: "record.screen"
-                )
-                
-                PermissionRow(
-                    title: "Microphone",
-                    isGranted: permissionManager.microphonePermission,
-                    systemImage: "mic"
                 )
             }
             .padding()

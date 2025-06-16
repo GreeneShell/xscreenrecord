@@ -1,0 +1,22 @@
+
+Showing Recent Issues
+
+Build target XScreenRecord of project xscreenrecord with configuration Debug
+
+CodeSign /Users/greene/Library/Developer/Xcode/DerivedData/xscreenrecord-ebvtebvghjltktakebnmzvzmweeo/Build/Products/Debug-iphoneos/XScreenRecord.app/XScreenRecord.debug.dylib (in target 'XScreenRecord' from project 'xscreenrecord')
+    cd /Users/greene/Documents/SwiftProjects/xscreenrecord
+    
+    Signing Identity:     "Apple Development: Fei Zhang (U7X6Z9W35S)"
+    Provisioning Profile: "iOS Team Provisioning Profile: *"
+                          (8651db39-8428-43b7-90a3-2d684091299c)
+    
+    /usr/bin/codesign --force --sign CBBE0AC26645C970F384A5758D103172C491A473 --timestamp\=none --generate-entitlement-der /Users/greene/Library/Developer/Xcode/DerivedData/xscreenrecord-ebvtebvghjltktakebnmzvzmweeo/Build/Products/Debug-iphoneos/XScreenRecord.app/XScreenRecord.debug.dylib
+
+CBBE0AC26645C970F384A5758D103172C491A473: no identity found
+Command CodeSign failed with a nonzero exit code
+
+Command CodeSign failed with a nonzero exit code
+
+
+
+Build failed    2025/6/16, 20:58    11.2 seconds
