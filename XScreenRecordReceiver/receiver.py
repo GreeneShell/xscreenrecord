@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 from datetime import datetime
 import os
+import subprocess
+import tempfile
 
 
 class ScreenRecorder:
@@ -12,32 +14,86 @@ class ScreenRecorder:
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
 
-        # 视频编码器设置
-        self.fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self.fps = 30
-        self.video_writer = None
+        self.temp_dir = tempfile.mkdtemp()
         self.frame_count = 0
         self.recording = False
+        self.ffmpeg_process = None
+        self.temp_frames = []
+        self.current_connection = None
 
     def start_recording(self):
         if not self.recording:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = os.path.join(
+            self.output_file = os.path.join(
                 self.output_dir, f"screen_recording_{timestamp}.mp4"
-            )
-            self.video_writer = cv2.VideoWriter(
-                output_file, self.fourcc, self.fps, (1920, 1080)
             )
             self.recording = True
             self.frame_count = 0
-            print(f"开始录制: {output_file}")
+            self.temp_frames = []
+            print(f"开始录制: {self.output_file}")
 
     def stop_recording(self):
         if self.recording:
             self.recording = False
-            if self.video_writer:
-                self.video_writer.release()
-                print(f"录制完成，共 {self.frame_count} 帧")
+            if self.ffmpeg_process:
+                self.ffmpeg_process.terminate()
+                self.ffmpeg_process.wait()
+                self.ffmpeg_process = None
+            
+            if self.temp_frames:
+                print(f"正在处理 {len(self.temp_frames)} 帧...")
+                self.process_frames()
+            print(f"录制完成，共 {self.frame_count} 帧")
+            self.temp_frames = []
+
+    def process_frames(self):
+        try:
+            # 使用FFmpeg将帧转换为视频
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-y',  # 覆盖已存在的文件
+                '-f', 'rawvideo',
+                '-vcodec', 'rawvideo',
+                '-s', '1080x1920',  # 视频尺寸（竖屏）
+                '-pix_fmt', 'bgr24',  # 像素格式
+                '-r', '30',  # 帧率
+                '-i', '-',  # 从管道读取输入
+                '-c:v', 'libx264',  # 使用H.264编码
+                '-preset', 'medium',  # 编码速度预设
+                '-crf', '23',  # 质量参数（0-51，越小质量越好）
+                '-movflags', '+faststart',  # 优化网络播放
+                '-vf', 'transpose=2',  # 旋转视频（2表示逆时针旋转90度）
+                self.output_file
+            ]
+
+            # 启动FFmpeg进程
+            process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            # 写入所有帧
+            for frame in self.temp_frames:
+                process.stdin.write(frame.tobytes())
+
+            # 关闭输入流并等待处理完成
+            process.stdin.close()
+            process.wait()
+
+            if process.returncode == 0:
+                print(f"视频处理完成: {self.output_file}")
+            else:
+                print(f"视频处理失败，错误码: {process.returncode}")
+                stderr = process.stderr.read().decode()
+                print(f"错误信息: {stderr}")
+
+        except Exception as e:
+            print(f"处理视频时出错: {str(e)}")
+        finally:
+            # 清理临时帧
+            self.temp_frames = []
 
     def process_frame(self, frame_data):
         if not self.recording:
@@ -49,7 +105,11 @@ class ScreenRecorder:
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
             if frame is not None:
-                self.video_writer.write(frame)
+                # 调整帧大小以确保一致性
+                frame = cv2.resize(frame, (1080, 1920))
+                # 旋转帧
+                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+                self.temp_frames.append(frame)
                 self.frame_count += 1
 
                 # 每100帧打印一次进度
@@ -58,21 +118,33 @@ class ScreenRecorder:
         except Exception as e:
             print(f"处理帧时出错: {str(e)}")
 
+    def set_connection(self, websocket):
+        self.current_connection = websocket
+
+    def clear_connection(self):
+        self.current_connection = None
+
 
 async def handle_connection(websocket, path, recorder):
     print("新的客户端连接")
+    recorder.set_connection(websocket)
     try:
         async for message in websocket:
             if isinstance(message, bytes):
                 recorder.process_frame(message)
+            elif message == "STOP_RECORDING":
+                print("收到停止录制信号")
+                recorder.stop_recording()
             else:
                 print(f"收到文本消息: {message}")
     except websockets.exceptions.ConnectionClosed:
         print("客户端断开连接")
         recorder.stop_recording()
+        recorder.clear_connection()
     except Exception as e:
         print(f"处理连接时出错: {str(e)}")
         recorder.stop_recording()
+        recorder.clear_connection()
 
 
 async def main():
