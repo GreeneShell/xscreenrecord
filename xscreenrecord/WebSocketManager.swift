@@ -3,6 +3,7 @@ import AVFoundation
 import Combine
 import UIKit
 import CoreImage
+import Network
 
 enum WebSocketError: Error {
     case invalidURL
@@ -20,17 +21,39 @@ class WebSocketManager: ObservableObject {
     private var serverURL: URL
     private var reconnectTimer: Timer?
     private var messageQueue = DispatchQueue(label: "com.xscreenrecord.websocket")
+    private var reconnectAttempts = 0
+    private let maxReconnectAttempts = 5
+    private var reconnectDelay: TimeInterval = 1.0
+    private var isReconnecting = false
+    private var networkMonitor: NWPathMonitor?
     
-    init(serverURL: URL = URL(string: "ws://localhost:8080")!) {
+    init(serverURL: URL = URL(string: "ws://192.168.31.90:8080")!) {
         self.serverURL = serverURL
-        self.session = URLSession(configuration: .default)
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = true
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 300
+        self.session = URLSession(configuration: config)
+        setupNetworkMonitoring()
         setupWebSocket()
+    }
+    
+    private func setupNetworkMonitoring() {
+        networkMonitor = NWPathMonitor()
+        networkMonitor?.pathUpdateHandler = { [weak self] path in
+            if path.status == .satisfied {
+                self?.reconnectIfNeeded()
+            }
+        }
+        networkMonitor?.start(queue: DispatchQueue.global())
     }
     
     private func setupWebSocket() {
         webSocket = session.webSocketTask(with: serverURL)
         webSocket?.resume()
         isConnected = true
+        reconnectAttempts = 0
+        reconnectDelay = 1.0
         startPing()
         receiveMessage()
     }
@@ -39,6 +62,10 @@ class WebSocketManager: ObservableObject {
         webSocket?.sendPing { [weak self] error in
             if let error = error {
                 self?.handleError(.connectionFailed(error))
+            } else {
+                DispatchQueue.global().asyncAfter(deadline: .now() + 30) { [weak self] in
+                    self?.startPing()
+                }
             }
         }
     }
@@ -57,7 +84,10 @@ class WebSocketManager: ObservableObject {
     }
     
     func sendVideoData(_ sampleBuffer: CMSampleBuffer) {
-        guard isConnected else { return }
+        guard isConnected else {
+            reconnectIfNeeded()
+            return
+        }
         
         messageQueue.async { [weak self] in
             guard let self = self,
@@ -79,26 +109,49 @@ class WebSocketManager: ObservableObject {
         }
     }
     
+    func sendStopRecording() {
+        guard isConnected else { return }
+        
+        let stopMessage = URLSessionWebSocketTask.Message.string("STOP_RECORDING")
+        webSocket?.send(stopMessage) { [weak self] error in
+            if let error = error {
+                self?.handleError(.sendFailed(error))
+            }
+        }
+    }
+    
     private func handleError(_ error: WebSocketError) {
         DispatchQueue.main.async { [weak self] in
             self?.error = error
             self?.isConnected = false
-            self?.reconnect()
+            self?.reconnectIfNeeded()
         }
     }
     
-    private func reconnect() {
+    private func reconnectIfNeeded() {
+        guard !isReconnecting else { return }
+        
+        isReconnecting = true
         webSocket?.cancel(with: .goingAway, reason: nil)
         webSocket = nil
         
-        reconnectTimer?.invalidate()
-        reconnectTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
-            self?.setupWebSocket()
+        if reconnectAttempts < maxReconnectAttempts {
+            reconnectTimer?.invalidate()
+            reconnectTimer = Timer.scheduledTimer(withTimeInterval: reconnectDelay, repeats: false) { [weak self] _ in
+                self?.setupWebSocket()
+                self?.isReconnecting = false
+            }
+            reconnectAttempts += 1
+            reconnectDelay *= 2 // 指数退避
+        } else {
+            print("达到最大重连次数")
+            isReconnecting = false
         }
     }
     
     deinit {
         reconnectTimer?.invalidate()
         webSocket?.cancel(with: .normalClosure, reason: nil)
+        networkMonitor?.cancel()
     }
 } 
